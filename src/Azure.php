@@ -10,7 +10,6 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 use Auth;
-use Route;
 
 class Azure
 {
@@ -31,50 +30,43 @@ class Azure
      */
     public function handle($request, Closure $next)
     {
+
         $access_token = $request->session()->get('_rootinc_azure_access_token');
         $refresh_token = $request->session()->get('_rootinc_azure_refresh_token');
 
-        if (config('app.env') === "testing")
-        {
+        if (config('app.env') === "testing") {
             return $this->handleTesting($request, $next, $access_token, $refresh_token);
         }
 
-        if (!$access_token || !$refresh_token)
-        {
+        if (!$access_token || !$refresh_token) {
             return $this->redirect($request);
         }
 
         $client = new Client();
 
         try {
-            $form_params = [
-                'grant_type' => 'refresh_token',
-                'client_id' => config('azure.client.id'),
-                'client_secret' => config('azure.client.secret'),
-                'refresh_token' => $refresh_token,
-                'resource' => config('azure.resource'),
-            ];
-
-            if (Route::has('azure.callback')) {
-                $form_params['redirect_uri'] = route('azure.callback');
-            }
-
             $response = $client->request('POST', $this->baseUrl . config('azure.tenant_id') . $this->route . "token", [
-                'form_params' => $form_params,
+                'form_params' => [
+                    'grant_type' => 'refresh_token',
+                    'client_id' => config('azure.client.id'),
+                    'client_secret' => config('azure.client.secret'),
+                    'refresh_token' => $refresh_token,
+                    'resource' => config('azure.resource'),
+                ]
             ]);
 
             $contents = json_decode($response->getBody()->getContents());
-        } catch(RequestException $e) {
+
+
+            if (empty($contents->access_token) || empty($contents->refresh_token)) {
+                $this->fail($request, new \Exception('Missing tokens in response contents'));
+            }
+
+            $request->session()->put('_rootinc_azure_access_token', $contents->access_token);
+            $request->session()->put('_rootinc_azure_refresh_token', $contents->refresh_token);
+        } catch (RequestException $e) {
             $this->fail($request, $e);
         }
-
-        if (empty($contents->access_token) || empty($contents->refresh_token)) {
-            $this->fail($request, new \Exception('Missing tokens in response contents'));
-        }
-
-        $request->session()->put('_rootinc_azure_access_token', $contents->access_token);
-        $request->session()->put('_rootinc_azure_refresh_token', $contents->refresh_token);
-
         return $this->handlecallback($request, $next, $access_token, $refresh_token);
     }
 
@@ -90,8 +82,7 @@ class Azure
     {
         $user = Auth::user();
 
-        if (!isset($user))
-        {
+        if (!isset($user)) {
             return $this->redirect($request, $next);
         }
 
@@ -105,9 +96,7 @@ class Azure
      */
     public function getAzureUrl()
     {
-        $url = $this->baseUrl . config('azure.tenant_id') . $this->route2 . "authorize?response_type=code&client_id=" . config('azure.client.id') . "&domain_hint=" . urlencode(config('azure.domain_hint')) . "&scope=" . urldecode(config('azure.scope'));
-
-        return Route::has('azure.callback') ? $url . '&redirect_uri=' . urlencode(route('azure.callback')) : $url;
+        return $this->baseUrl . config('azure.tenant_id') . $this->route2 . "authorize?response_type=code&client_id=" . config('azure.client.id') . "&domain_hint=" . urlencode(config('azure.domain_hint')) . "&scope=" . urldecode(config('azure.scope'));
     }
 
     /**
@@ -119,7 +108,7 @@ class Azure
      */
     public function azure(Request $request)
     {
-        return redirect()->away( $this->getAzureUrl() );
+        return redirect()->away($this->getAzureUrl());
     }
 
     /**
@@ -158,13 +147,13 @@ class Azure
             ]);
 
             $contents = json_decode($response->getBody()->getContents());
-        } catch(RequestException $e) {
+        } catch (RequestException $e) {
             return $this->fail($request, $e);
         }
 
         $access_token = $contents->access_token;
         $refresh_token = $contents->refresh_token;
-        $profile = json_decode( base64_decode( explode(".", $contents->id_token)[1]) );
+        $profile = json_decode(base64_decode(explode(".", $contents->id_token)[1]));
 
         $request->session()->put('_rootinc_azure_access_token', $access_token);
         $request->session()->put('_rootinc_azure_refresh_token', $refresh_token);
@@ -196,7 +185,7 @@ class Azure
     protected function fail(Request $request, \Exception $e)
     {
         // JustinByrne updated the original code from smitthhyy (18 Dec 2019) to change to an array to allow for multiple error codes.
-        if ($request->isMethod('get'))  {
+        if ($request->isMethod('get')) {
             $errorDescription = trim(substr($request->query('error_description', 'SOMETHING_ELSE'), 0, 11));
 
             $azureErrors = [
