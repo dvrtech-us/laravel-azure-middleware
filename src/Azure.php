@@ -29,8 +29,11 @@ class Azure
      * @throws \Exception
      */
     public function handle($request, Closure $next)
-    {
-
+    {   
+        if(env('SKIP_AZURE_RECHECKS', false) === true && Auth::check()) {
+            // If the user is already logged in, and we're skipping rechecks, just return the next request
+            return $next($request);
+        }
         $access_token = $request->session()->get('_rootinc_azure_access_token');
         $refresh_token = $request->session()->get('_rootinc_azure_refresh_token');
 
